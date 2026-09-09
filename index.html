@@ -153,8 +153,6 @@
                     <div id="photo-result-box" class="hidden text-xs font-bold p-2 rounded text-center"></div>
                 </div>
 
-                <div id="qr-reader" class="hidden w-full bg-black rounded overflow-hidden mt-2"></div>
-
                 <!-- 5분 경과 후 비상코드 확인 버튼 및 힌트 출력 구역 -->
                 <div class="pt-2 border-t border-slate-700 space-y-2">
                     <div id="fallback-btn-box" class="text-center">
@@ -209,6 +207,18 @@
         </section>
 
     </main>
+
+    <!-- QR 스캔 팝업: 화면 중앙에 떠서 카메라 화면에 집중할 수 있게 함 -->
+    <div id="qr-modal" class="hidden fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onclick="if(event.target === this) stopQRScanner()">
+        <div class="w-full max-w-sm bg-slate-900 rounded-xl border border-slate-700 shadow-2xl overflow-hidden">
+            <div class="flex justify-between items-center px-4 py-3 border-b border-slate-700">
+                <p class="text-sm font-bold text-amber-400">📷 QR 코드 스캔</p>
+                <button onclick="stopQRScanner()" class="text-slate-400 hover:text-white text-2xl leading-none w-8 h-8 flex items-center justify-center rounded transition">✕</button>
+            </div>
+            <div id="qr-reader" class="w-full bg-black"></div>
+            <p class="text-[11px] text-slate-400 text-center py-2.5 px-3">QR 코드를 네모 칸 안에 맞춰주세요</p>
+        </div>
+    </div>
 
     <script>
         const MAP_IMAGE = 'map.png'; 
@@ -899,9 +909,10 @@
         }
 
         function openQRScanner() {
-            const qrContainer = document.getElementById('qr-reader');
-            qrContainer.classList.remove('hidden');
-            
+            const qrModal = document.getElementById('qr-modal');
+            qrModal.classList.remove('hidden');
+            document.body.classList.add('overflow-hidden');
+
             html5QrCode = new Html5Qrcode("qr-reader");
             html5QrCode.start(
                 { facingMode: "environment" },
@@ -919,7 +930,8 @@
                 () => {}
             ).catch(() => {
                 alert("카메라를 시작할 수 없습니다. 비상 코드로 인증해주세요.");
-                qrContainer.classList.add('hidden');
+                qrModal.classList.add('hidden');
+                document.body.classList.remove('overflow-hidden');
                 html5QrCode = null;
             });
         }
@@ -928,19 +940,20 @@
         // 뒤이어 실행돼야 할 화면 전환(proceedAfterAuth)까지 막혀버리므로,
         // 어떤 경우에도 예외가 밖으로 새지 않도록 방어한다.
         function stopQRScanner() {
-            if (!html5QrCode) return;
+            const closeModal = () => {
+                document.getElementById('qr-modal').classList.add('hidden');
+                document.body.classList.remove('overflow-hidden');
+            };
+            if (!html5QrCode) {
+                closeModal();
+                return;
+            }
             const scanner = html5QrCode;
             html5QrCode = null;
             try {
-                scanner.stop()
-                    .then(() => {
-                        document.getElementById('qr-reader').classList.add('hidden');
-                    })
-                    .catch(() => {
-                        document.getElementById('qr-reader').classList.add('hidden');
-                    });
+                scanner.stop().then(closeModal).catch(closeModal);
             } catch (e) {
-                document.getElementById('qr-reader').classList.add('hidden');
+                closeModal();
             }
         }
 
