@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>광주학생항일운동 야외방탈출 - 평촌고 비밀 독서회</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- HTML5-QRCode Scanner Library -->
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <style>
+        .map-pin {
+            transition: all 0.2s ease-in-out;
+            box-shadow: 0 0 8px rgba(0,0,0,0.6);
+        }
+        .map-pin.active {
+            animation: pulse-glow 0.8s infinite alternate;
+        }
+        @keyframes pulse-glow {
+            from { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 8px #22c55e; }
+            to { transform: translate(-50%, -50%) scale(1.25); box-shadow: 0 0 18px #4ade80; }
+        }
+        
+        .puzzle-drop-zone {
+            min-height: 80px;
+            touch-action: none;
+        }
+        .puzzle-piece {
+            cursor: grab;
+            user-select: none;
+            touch-action: none;
+        }
+        .puzzle-piece:active {
+            cursor: grabbing;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col font-sans">
+
+    <!-- 상단 헤더 & 경계수치 / 타이머 바 -->
+    <header id="status-bar" class="hidden bg-slate-800 border-b border-slate-700 p-3 sticky top-0 z-50 shadow-lg">
+        <div class="max-w-md mx-auto flex justify-between items-center text-xs sm:text-sm">
+            <div>
+                <span class="text-slate-400">캐릭터:</span> 
+                <span id="user-char-name" class="font-bold text-amber-400">미선택</span>
+            </div>
+            <div class="flex items-center space-x-3">
+                <div>
+                    <span class="text-slate-400">경계 수치:</span>
+                    <span id="alert-gauge" class="font-bold text-red-500">0%</span>
+                </div>
+                <div>
+                    <span class="text-slate-400">남은 시간:</span>
+                    <span id="timer" class="font-mono text-amber-300">45:00</span>
+                </div>
+            </div>
+        </div>
+        <div class="max-w-md mx-auto w-full bg-slate-700 h-1.5 rounded-full mt-2 overflow-hidden">
+            <div id="alert-bar" class="bg-red-600 h-full w-0 transition-all duration-300"></div>
+        </div>
+    </header>
+
+    <!-- 메인 컨테이너 -->
+    <main class="flex-1 max-w-md w-full mx-auto p-4 flex flex-col justify-center">
+
+        <!-- 1. 캐릭터 선택 화면 -->
+        <section id="char-select-screen" class="space-y-4">
+            <div class="text-center space-y-1">
+                <h1 class="text-2xl font-bold text-amber-400">1929 평촌고의 비밀 독서회</h1>
+                <p class="text-slate-300 text-xs">함께할 인물을 선택하면 스킬과 능력이 부여됩니다.</p>
+            </div>
+            
+            <!-- 캐릭터 이미지 카드 목록 -->
+            <div id="char-list" class="grid grid-cols-1 gap-3 max-h-[60vh] overflow-y-auto pr-1"></div>
+
+            <button onclick="startGame()" id="start-btn" class="w-full py-3 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold rounded-lg shadow-lg opacity-50 cursor-not-allowed transition" disabled>
+                작전 개시
+            </button>
+        </section>
+
+        <!-- 2. 게임 메인 (스토리 & 미션) 화면 -->
+        <section id="game-screen" class="hidden space-y-4">
+            
+            <!-- 장소 헤더 -->
+            <div class="bg-slate-800 p-3 rounded-lg border border-slate-700 flex justify-between items-center">
+                <div>
+                    <span class="text-xs text-amber-500 font-bold uppercase tracking-wider" id="loc-step">지점 1/7</span>
+                    <h2 class="text-lg font-bold" id="loc-title">장소명</h2>
+                </div>
+                <button onclick="useCharacterSkill()" id="skill-btn" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded shadow transition">
+                    ⚡ 특수 스킬
+                </button>
+            </div>
+
+            <!-- 대화창 -->
+            <div class="bg-slate-800/90 border border-amber-500/30 p-4 rounded-xl shadow-md space-y-2">
+                <div class="flex items-center space-x-2 border-b border-slate-700 pb-2">
+                    <span class="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block"></span>
+                    <span id="dialogue-speaker" class="font-bold text-sm text-amber-300">이름</span>
+                </div>
+                <p id="dialogue-text" class="text-sm text-slate-200 leading-relaxed min-h-[60px]">
+                    대화 내용이 입력됩니다.
+                </p>
+            </div>
+
+            <!-- Step A: 인증 구역 (QR / GPS) -->
+            <div id="step-qr-lock" class="bg-slate-800 p-4 rounded-xl border border-slate-700 space-y-3 text-center">
+                <p id="auth-title" class="text-sm font-bold text-amber-400">📍 현장에 도착하셨나요?</p>
+                <p id="auth-desc" class="text-xs text-slate-300">설치된 QR 코드를 스캔하거나 수동 입력을 거쳐야 단서가 해제됩니다.</p>
+                
+                <button id="qr-scan-btn" onclick="openQRScanner()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg transition shadow flex items-center justify-center gap-2">
+                    📷 QR 코드 스캔하기
+                </button>
+
+                <button id="gps-check-btn" onclick="checkGPSLocation()" class="hidden w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition shadow flex items-center justify-center gap-2">
+                    🌐 GPS 위치 확인하기
+                </button>
+
+                <div id="qr-reader" class="hidden w-full bg-black rounded overflow-hidden mt-2"></div>
+
+                <!-- 5분 경과 후 비상코드 확인 버튼 및 힌트 출력 구역 -->
+                <div class="pt-2 border-t border-slate-700 space-y-2">
+                    <div id="fallback-btn-box" class="text-center">
+                        <button id="fallback-reveal-btn" onclick="revealFallbackCode()" disabled class="w-full py-2 bg-slate-700 text-slate-400 text-xs font-bold rounded border border-slate-600 opacity-60 cursor-not-allowed transition">
+                            ⏳ 비상 코드 힌트 요청 (5분 대기: <span id="loc-timer-disp">05:00</span>)
+                        </button>
+                    </div>
+
+                    <div id="fallback-hint-box" class="hidden bg-amber-950/80 border border-amber-500 p-2 rounded text-xs text-amber-200 font-bold">
+                        ⚠️ 비상 인증 코드: [<span id="fallback-code-disp" class="text-white underline text-sm"></span>]
+                    </div>
+
+                    <div class="flex gap-2">
+                        <input type="text" id="manual-code" placeholder="비상 코드 입력" class="flex-1 bg-slate-900 border border-slate-600 px-3 py-1.5 text-xs rounded text-white focus:outline-none focus:border-amber-400">
+                        <button onclick="submitManualCode()" class="bg-amber-600 hover:bg-amber-500 text-slate-950 px-3 py-1.5 text-xs rounded font-bold transition">확인</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step B: 퀴즈 해결 구역 -->
+            <div id="step-quiz-container" class="hidden bg-slate-800 p-4 rounded-xl border border-slate-700 space-y-4">
+                <div id="quiz-container"></div>
+                <button id="submit-btn" onclick="checkAnswer()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg transition shadow">
+                    정답 확인
+                </button>
+            </div>
+
+            <!-- Step C: 다음 장소 이동 안내 구역 -->
+            <div id="step-next-guide" class="hidden bg-slate-800 p-4 rounded-xl border border-amber-500/50 space-y-3 text-center">
+                <p class="text-sm font-bold text-amber-400">🎉 암호 해독 완료!</p>
+                <p class="text-xs text-slate-200">다음 목적지의 사진 정보를 확인하고 해당 위치로 이동하세요.</p>
+
+                <div class="rounded border border-slate-700 overflow-hidden">
+                    <img id="next-loc-img" src="" alt="다음 장소 안내 사진" class="w-full h-auto object-cover max-h-64 mx-auto">
+                </div>
+
+                <button onclick="proceedToNextLocation()" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition shadow">
+                    다음 장소 도착 완료
+                </button>
+            </div>
+
+        </section>
+
+        <!-- 3. 엔딩 화면 -->
+        <section id="ending-screen" class="hidden text-center space-y-6 py-8">
+            <div id="ending-icon" class="text-6xl"></div>
+            <h1 id="ending-title" class="text-2xl font-bold"></h1>
+            <p id="ending-desc" class="text-sm text-slate-300 leading-relaxed px-4"></p>
+            <button onclick="location.reload()" class="px-6 py-2.5 bg-amber-500 text-slate-950 font-bold rounded-lg">
+                다시 도전하기
+            </button>
+        </section>
+
+    </main>
+
+    <script>
+        const MAP_IMAGE = 'map.png'; 
+        const PUZZLE_IMAGE = 'puzzle.png';
+
+        // 업로드해주신 파일명 반영
+        const CHARACTERS = [
+            { id: 'jang', name: '장재성', role: '독서회 리더', img: '장재성 캐릭터.png', desc: '4지선다 오답 2개 즉시 제거', skillName: '리더십의 단서' },
+            { id: 'guk', name: '국채진', role: '신간회 간부', img: '국채진 캐릭터.png', desc: '현재 경계 수치 15% 감소', skillName: '교란 작전' },
+            { id: 'park', name: '박준채', role: '광주고보 학생', img: '박준채 캐릭터.png', desc: '지도 경로/퍼즐 자동 맞춤', skillName: '지형지물 파악' },
+            { id: 'lee', name: '이광춘', role: '광주여고보 학생', img: '이광춘 캐릭터.png', desc: '단답형 정답 단서 개방', skillName: '선언문 암호해독' },
+            { id: 'kim', name: '김귀임', role: '경성여상 학생', img: '김귀임 캐릭터.png', desc: '제한시간 2분 연장', skillName: '전국 비밀 연락망' }
+        ];
+
+        const LOCATIONS = [
+            {
+                id: 0,
+                title: '지점1 : 교실 (비밀 아지트)',
+                authType: 'none',
+                nextGuideImg: 'spot2.jpg',
+                dialogue: {
+                    jang: "독서회 동지들, 교실에서 일제의 감시를 피해 첫 거사를 논의해야 하네.",
+                    guk: "학생들의 움직임을 지켜보고 있네. 여기서 첫 지침을 완벽히 숙지하게.",
+                    park: "나주역에서의 충돌 소식이 교실까지 전해졌다. 더 이상 참을 수 없어!",
+                    lee: "우리가 직접 격문을 써서 학생들의 뜻을 모아야 합니다.",
+                    kim: "교실 밖 경성에서도 광주의 소식을 간절히 기다리고 있습니다."
+                },
+                type: 'choice',
+                question: "1926년 광주 학생들이 식민지 차별 교육에 맞서 비밀리에 결성한 항일 독서회 조직의 이름은?",
+                options: ['성진회', '신간회', '근우회', '한글학회'],
+                answer: 0
+            },
+            {
+                id: 1,
+                title: '지점2 : 새솔관 구름다리',
+                authType: 'qr',
+                qrCode: 'LOC02_SAESOL_BRIDGE',
+                fallbackCode: '1030',
+                nextGuideImg: 'spot3.jpg',
+                dialogue: {
+                    jang: "새솔관 구름다리 아래로 순사들의 감시가 매섭다. 비밀 입수를 완료하라.",
+                    guk: "10월 30일 나주역 사건의 편파적 조치에 분노한 학생들이 모이고 있네.",
+                    park: "구름다리를 건너 매점 방향으로 신속히 이동해야 한다!",
+                    lee: "우리 여학생들도 구름다리에서 유인물을 전달받았습니다.",
+                    kim: "전국의 연락망이 구름다리를 통해 비밀리에 유지되고 있습니다."
+                },
+                type: 'short',
+                question: "광주학생항일운동의 불씨가 된, 박준채 등이 일본 학생과 맞서 싸운 열차 통학길의 중심 역 이름은? (초성: ㄴㅈㅇ)",
+                answer: '나주역'
+            },
+            {
+                id: 2,
+                title: '지점3 : 우솔관 1층 매점',
+                authType: 'qr',
+                qrCode: 'LOC03_WOSOL_STORE',
+                fallbackCode: '1103',
+                nextGuideImg: 'spot4.jpg',
+                dialogue: {
+                    jang: "지도 상의 지점들을 올바른 시위 진격 순서대로 터치하라!",
+                    guk: "순서가 틀리면 신호가 들어오지 않네. 정확한 행진 경로를 찾아보게.",
+                    park: "매점 앞 광장에 모인 학생 시위대의 순서를 정확히 포착하자!",
+                    lee: "녹색 불빛이 들어오는 곳이 우리가 나아갈 진격로입니다.",
+                    kim: "시위 경로 정보가 완벽히 수집되어 경성으로 타전되고 있습니다."
+                },
+                type: 'map',
+                question: "지도 위 핀을 순서대로 터치하세요. 올바른 순서를 누르면 녹색 불빛 신호가 들어옵니다.",
+                answer: [1, 2, 3, 4, 5, 6]
+            },
+            {
+                id: 3,
+                title: '지점4 : 중앙현관',
+                authType: 'qr',
+                qrCode: 'LOC04_MAIN_HALL',
+                fallbackCode: '1929',
+                nextGuideImg: 'spot5.jpg',
+                dialogue: {
+                    jang: "중앙현관에 찢겨서 숨겨진 학생 궐기 선언서 사진을 완벽히 맞추어라.",
+                    guk: "하단의 퍼즐 조각을 상단 퍼즐판의 3x3 위치로 드래그하여 완성하게.",
+                    park: "중앙현관까지 순사들이 들어왔다. 어서 선언문을 복원하자!",
+                    lee: "우리의 당당한 요구가 담긴 선언문입니다.",
+                    kim: "완성된 선언문은 중앙현관을 통해 전국으로 배포될 것입니다."
+                },
+                type: 'puzzle',
+                question: "하단의 퍼즐 조각들을 드래그하여 상단 퍼즐판의 정확한 3x3 위치에 맞추세요.",
+                answer: [0, 1, 2, 3, 4, 5, 6, 7, 8]
+            },
+            {
+                id: 4,
+                title: '지점5 : 구령대 뒤편',
+                authType: 'qr',
+                qrCode: 'LOC05_GRANDSTAND_BACK',
+                fallbackCode: '0301',
+                nextGuideImg: 'spot6.jpg',
+                dialogue: {
+                    jang: "구령대 뒤편 밀실에서 민족 단체들이 지휘 본부를 결성했다.",
+                    guk: "어른들과 시민 단체들도 학생들의 정의로운 투쟁을 뒷받침할 것이다.",
+                    park: "전국 300여 학교가 동맹휴학으로 결의를 응원하고 있습니다!",
+                    lee: "이 투쟁은 단순한 충돌을 넘어선 민족적 항일 운동입니다.",
+                    kim: "전국적인 항일 연대 운동으로 확산되었습니다!"
+                },
+                type: 'short',
+                question: "3·1 운동 이후 최대 규모의 민족 운동이자 전국 300여 학교가 참여한 이 운동의 명칭은?",
+                answer: '광주학생항일운동'
+            },
+            {
+                id: 5,
+                title: '지점6 : 운동장 철봉',
+                authType: 'qr',
+                qrCode: 'LOC06_PLAYGROUND_BARS',
+                fallbackCode: '0500',
+                nextGuideImg: 'spot7.jpg',
+                dialogue: {
+                    jang: "철봉 아래서 체력을 단련하던 기개로 마지막 정문 결의를 준비하라.",
+                    guk: "경찰의 경계가 극에 달했다. 암호를 풀어 정문으로 진격하자.",
+                    park: "동지들아, 이제 마지막 정문 비석으로 모여라!",
+                    lee: "우리의 함성이 학교 담장을 넘어 전국으로 울려 퍼질 것입니다.",
+                    kim: "모든 준비가 끝났습니다. 정문으로 이동합니다!"
+                },
+                type: 'choice',
+                question: "광주학생항일운동이 던진 역사적 메시지로 가장 적절한 것은?",
+                answer: 1,
+                options: ['일제 식민 통치에 대한 순응', '식민지 차별 교육 철폐 및 민족 독립 의지 표출', '외세의 무력 지원 요청', '단순한 학생 간 패싸움 계승']
+            },
+            {
+                id: 6,
+                title: '지점7 : 정문 비석 (최종 집결지)',
+                authType: 'gps',
+                targetCoords: { lat: 37.38843, lng: 126.95893 },
+                fallbackCode: '815',
+                nextGuideImg: null,
+                dialogue: {
+                    jang: "마침내 정문 비석에 도달했다! 기기의 GPS 위치를 확인하여 최종 거사를 선언하라!",
+                    guk: "모든 동지가 정문 비석에 집결했네. 독립의 함성을 외치게!",
+                    park: "우리의 기개가 이 비석에 영원히 기록될 것이다!",
+                    lee: "대한의 독립과 학생들의 자유를 위하여!",
+                    kim: "전국이 우리의 독립 선언에 응답할 것입니다!"
+                },
+                type: 'final',
+                question: "정문 비석에 도착했습니다. 동지들과 함께 외칠 최종 구호를 입력하세요.",
+                answer: '대한 독립 만세'
+            }
+        ];
+
+        let selectedChar = null;
+        let currentLocIndex = 0;
+        let alertGauge = 0;
+        let timerSeconds = 45 * 60;
+        let timerInterval = null;
+        let alertInterval = null;
+        
+        let locStaySeconds = 0;
+        let locTimerInterval = null;
+
+        let isSkillUsed = false;
+        let html5QrCode = null;
+
+        let currentMapSequence = [];
+        let puzzleGridState = new Array(9).fill(null);
+        let availablePuzzlePieces = [0, 1, 2, 3, 4, 5, 6, 7, 8].sort(() => Math.random() - 0.5);
+
+        window.onload = () => {
+            renderCharSelect();
+        };
+
+        // 이미지 카드 형태의 캐릭터 선택창 렌더링
+        function renderCharSelect() {
+            const listEl = document.getElementById('char-list');
+            listEl.innerHTML = CHARACTERS.map(c => `
+                <div onclick="selectChar('${c.id}')" id="card-${c.id}" class="char-card relative p-2 bg-slate-800 border-2 border-slate-700 rounded-xl cursor-pointer hover:border-amber-400 transition flex items-center gap-3 overflow-hidden">
+                    <img src="${c.img}" alt="${c.name}" class="w-20 h-24 object-cover rounded-lg border border-slate-600 flex-shrink-0">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center justify-between gap-1 mb-1">
+                            <h3 class="font-bold text-amber-300 text-sm">${c.name}</h3>
+                            <span class="text-[10px] bg-indigo-900/90 text-indigo-200 px-1.5 py-0.5 rounded border border-indigo-700 truncate">⚡ ${c.skillName}</span>
+                        </div>
+                        <p class="text-xs text-slate-400 font-semibold mb-1">${c.role}</p>
+                        <p class="text-[11px] text-slate-300 leading-snug">${c.desc}</p>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function selectChar(id) {
+            selectedChar = CHARACTERS.find(c => c.id === id);
+            document.querySelectorAll('.char-card').forEach(el => {
+                el.classList.remove('border-amber-400', 'bg-slate-700/80', 'ring-2', 'ring-amber-400/50');
+                el.classList.add('border-slate-700', 'bg-slate-800');
+            });
+            const activeCard = document.getElementById(`card-${id}`);
+            activeCard.classList.remove('border-slate-700', 'bg-slate-800');
+            activeCard.classList.add('border-amber-400', 'bg-slate-700/80', 'ring-2', 'ring-amber-400/50');
+            
+            const btn = document.getElementById('start-btn');
+            btn.disabled = false;
+            btn.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+
+        function startGame() {
+            if (!selectedChar) return;
+            
+            document.getElementById('char-select-screen').classList.add('hidden');
+            document.getElementById('status-bar').classList.remove('hidden');
+            document.getElementById('game-screen').classList.remove('hidden');
+            
+            document.getElementById('user-char-name').innerText = selectedChar.name;
+
+            startTimers();
+            loadLocation(0);
+        }
+
+        function startTimers() {
+            timerInterval = setInterval(() => {
+                timerSeconds--;
+                const m = Math.floor(timerSeconds / 60);
+                const s = timerSeconds % 60;
+                document.getElementById('timer').innerText = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+
+                if (timerSeconds <= 0) {
+                    triggerGameOver("제한시간 초과! 일제 경찰의 대대적인 검문으로 정문이 봉쇄되었습니다.");
+                }
+            }, 1000);
+
+            alertInterval = setInterval(() => {
+                increaseAlert(1);
+            }, 30000);
+        }
+
+        function increaseAlert(amount) {
+            alertGauge = Math.min(100, alertGauge + amount);
+            document.getElementById('alert-gauge').innerText = `${alertGauge}%`;
+            document.getElementById('alert-bar').style.width = `${alertGauge}%`;
+
+            if (alertGauge >= 100) {
+                triggerGameOver("일제 경찰의 경계 수치가 100%에 도달하여 체포되었습니다.");
+            }
+        }
+
+        function decreaseAlert(amount) {
+            alertGauge = Math.max(0, alertGauge - amount);
+            document.getElementById('alert-gauge').innerText = `${alertGauge}%`;
+            document.getElementById('alert-bar').style.width = `${alertGauge}%`;
+        }
+
+        function loadLocation(index) {
+            currentLocIndex = index;
+            const loc = LOCATIONS[index];
+
+            document.getElementById('loc-step').innerText = `지점 ${index + 1}/${LOCATIONS.length}`;
+            document.getElementById('loc-title').innerText = loc.title;
+            document.getElementById('dialogue-speaker').innerText = selectedChar.name;
+            document.getElementById('dialogue-text').innerText = loc.dialogue[selectedChar.id] || loc.dialogue['jang'];
+
+            startLocStayTimer();
+
+            if (loc.authType === 'none') {
+                showStep('quiz');
+                renderQuiz(loc);
+            } else if (loc.authType === 'gps') {
+                showStep('qr');
+                document.getElementById('auth-title').innerText = "📍 정문 비석 GPS 위치 인증";
+                document.getElementById('auth-desc').innerText = "정문 비석 인근 30m 이내에 위치해야 최종 미션이 해제됩니다.";
+                document.getElementById('qr-scan-btn').classList.add('hidden');
+                document.getElementById('gps-check-btn').classList.remove('hidden');
+            } else {
+                showStep('qr');
+                document.getElementById('auth-title').innerText = "📍 현장에 도착하셨나요?";
+                document.getElementById('auth-desc').innerText = "설치된 QR 코드를 스캔하거나 수동 입력을 거쳐야 단서가 해제됩니다.";
+                document.getElementById('qr-scan-btn').classList.remove('hidden');
+                document.getElementById('gps-check-btn').classList.add('hidden');
+            }
+        }
+
+        function startLocStayTimer() {
+            clearInterval(locTimerInterval);
+            locStaySeconds = 300;
+            
+            document.getElementById('fallback-hint-box').classList.add('hidden');
+            document.getElementById('manual-code').value = '';
+
+            const btn = document.getElementById('fallback-reveal-btn');
+            btn.disabled = true;
+            btn.classList.add('opacity-60', 'cursor-not-allowed');
+            btn.classList.remove('bg-amber-600', 'hover:bg-amber-500', 'text-slate-950');
+            btn.classList.add('bg-slate-700', 'text-slate-400');
+
+            updateLocTimerDisp();
+
+            locTimerInterval = setInterval(() => {
+                locStaySeconds--;
+                updateLocTimerDisp();
+
+                if (locStaySeconds <= 0) {
+                    clearInterval(locTimerInterval);
+                    btn.disabled = false;
+                    btn.classList.remove('opacity-60', 'cursor-not-allowed', 'bg-slate-700', 'text-slate-400');
+                    btn.classList.add('bg-amber-600', 'hover:bg-amber-500', 'text-slate-950');
+                    document.getElementById('loc-timer-disp').innerText = "요청 가능";
+                }
+            }, 1000);
+        }
+
+        function updateLocTimerDisp() {
+            if (locStaySeconds > 0) {
+                const m = Math.floor(locStaySeconds / 60);
+                const s = locStaySeconds % 60;
+                document.getElementById('loc-timer-disp').innerText = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+            }
+        }
+
+        function revealFallbackCode() {
+            const loc = LOCATIONS[currentLocIndex];
+            if (loc.fallbackCode) {
+                document.getElementById('fallback-code-disp').innerText = loc.fallbackCode;
+                document.getElementById('fallback-hint-box').classList.remove('hidden');
+            }
+        }
+
+        function showStep(stepName) {
+            document.getElementById('step-qr-lock').classList.add('hidden');
+            document.getElementById('step-quiz-container').classList.add('hidden');
+            document.getElementById('step-next-guide').classList.add('hidden');
+
+            if (stepName === 'qr') {
+                document.getElementById('step-qr-lock').classList.remove('hidden');
+            } else if (stepName === 'quiz') {
+                document.getElementById('step-quiz-container').classList.remove('hidden');
+            } else if (stepName === 'guide') {
+                document.getElementById('step-next-guide').classList.remove('hidden');
+            }
+        }
+
+        function checkGPSLocation() {
+            const loc = LOCATIONS[currentLocIndex];
+            if (!navigator.geolocation) {
+                alert("이 브라우저에서는 GPS 위치 확인을 지원하지 않습니다.");
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    const userLat = pos.coords.latitude;
+                    const userLng = pos.coords.longitude;
+                    const dist = getDistanceInMeters(userLat, userLng, loc.targetCoords.lat, loc.targetCoords.lng);
+
+                    if (dist <= 30) {
+                        alert("정문 비석 위치 확인 완료! 최종 미션이 해제되었습니다.");
+                        showStep('quiz');
+                        renderQuiz(loc);
+                    } else {
+                        alert(`정문 비석 근처로 더 이동하세요. (현재 거리: 약 ${Math.round(dist)}m)`);
+                    }
+                },
+                (err) => {
+                    alert("GPS 위치 정보를 불러올 수 없습니다. 위치 권한을 확인하세요.");
+                },
+                { enableHighAccuracy: true }
+            );
+        }
+
+        function getDistanceInMeters(lat1, lon1, lat2, lon2) {
+            const R = 6371e3;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+
+        function renderQuiz(loc) {
+            const container = document.getElementById('quiz-container');
+            container.innerHTML = `<p class="font-bold text-sm mb-3 text-slate-200">${loc.question}</p>`;
+
+            if (loc.type === 'choice') {
+                container.innerHTML += `
+                    <div class="space-y-2" id="choice-options">
+                        ${loc.options.map((opt, i) => `
+                            <label class="flex items-center space-x-2 bg-slate-700/50 p-2.5 rounded border border-slate-600 cursor-pointer hover:bg-slate-700">
+                                <input type="radio" name="quiz-opt" value="${i}" class="text-amber-500 focus:ring-amber-400">
+                                <span class="text-sm">${opt}</span>
+                            </label>
+                        `).join('')}
+                    </div>
+                `;
+            } else if (loc.type === 'short' || loc.type === 'final') {
+                container.innerHTML += `
+                    <input type="text" id="short-answer" placeholder="정답을 입력하세요" class="w-full bg-slate-900 border border-slate-600 p-2.5 rounded text-white text-sm focus:border-amber-400 outline-none">
+                    <p id="short-hint" class="text-xs text-amber-400 mt-1 hidden"></p>
+                `;
+            } else if (loc.type === 'map') {
+                currentMapSequence = [];
+                container.innerHTML += `
+                    <div class="relative w-full rounded border border-slate-700 overflow-hidden bg-slate-950">
+                        <img src="${MAP_IMAGE}" alt="광주학생항일운동 지도" class="w-full h-auto object-contain">
+                        <button onclick="clickMapPin(1)" id="pin-1" style="top: 61%; left: 49%;" class="map-pin absolute -translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-800 border-2 border-slate-300 flex items-center justify-center shadow-md"></button>
+                        <button onclick="clickMapPin(2)" id="pin-2" style="top: 53%; left: 54%;" class="map-pin absolute -translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-800 border-2 border-slate-300 flex items-center justify-center shadow-md"></button>
+                        <button onclick="clickMapPin(3)" id="pin-3" style="top: 45%; left: 74%;" class="map-pin absolute -translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-800 border-2 border-slate-300 flex items-center justify-center shadow-md"></button>
+                        <button onclick="clickMapPin(4)" id="pin-4" style="top: 67%; left: 77%;" class="map-pin absolute -translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-800 border-2 border-slate-300 flex items-center justify-center shadow-md"></button>
+                        <button onclick="clickMapPin(5)" id="pin-5" style="top: 77%; left: 61%;" class="map-pin absolute -translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-800 border-2 border-slate-300 flex items-center justify-center shadow-md"></button>
+                        <button onclick="clickMapPin(6)" id="pin-6" style="top: 28%; left: 65%;" class="map-pin absolute -translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-800 border-2 border-slate-300 flex items-center justify-center shadow-md"></button>
+                    </div>
+                    <div class="flex justify-between items-center text-xs mt-2">
+                        <span id="map-status" class="text-amber-300 font-bold">성공 신호: 0 / 6</span>
+                        <button onclick="resetMapSequence()" class="text-slate-400 hover:text-white underline">초기화</button>
+                    </div>
+                `;
+            } else if (loc.type === 'puzzle') {
+                renderDragPuzzle(container);
+            }
+        }
+
+        function clickMapPin(num) {
+            const expectedNum = currentMapSequence.length + 1;
+            if (num === expectedNum) {
+                currentMapSequence.push(num);
+                const pinBtn = document.getElementById(`pin-${num}`);
+                pinBtn.classList.remove('bg-slate-800', 'border-slate-300');
+                pinBtn.classList.add('bg-green-500', 'border-green-200', 'active');
+                document.getElementById('map-status').innerText = `성공 신호: ${currentMapSequence.length} / 6`;
+            } else {
+                alert(`올바른 이동 경로 순서가 아닙니다! 처음부터 다시 시도하세요.`);
+                resetMapSequence();
+                increaseAlert(3);
+            }
+        }
+
+        function resetMapSequence() {
+            currentMapSequence = [];
+            for (let i = 1; i <= 6; i++) {
+                const btn = document.getElementById(`pin-${i}`);
+                if (btn) btn.className = "map-pin absolute -translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-800 border-2 border-slate-300 flex items-center justify-center shadow-md";
+            }
+            const status = document.getElementById('map-status');
+            if (status) status.innerText = "성공 신호: 0 / 6";
+        }
+
+        function renderDragPuzzle(container) {
+            container.innerHTML += `
+                <div class="space-y-4">
+                    <div class="grid grid-cols-3 gap-1 bg-slate-950 p-2 border border-slate-700 rounded w-full max-w-[280px] mx-auto aspect-[3/4]" id="puzzle-grid">
+                        ${puzzleGridState.map((pieceIdx, slotIdx) => `
+                            <div ondragover="allowDrop(event)" ondrop="dropPiece(event, ${slotIdx})" 
+                                 onclick="returnPieceToVault(${slotIdx})"
+                                 class="puzzle-drop-zone relative border border-dashed border-slate-700 rounded flex items-center justify-center overflow-hidden bg-slate-900/50">
+                                ${pieceIdx !== null ? getPieceHTML(pieceIdx, slotIdx) : `<span class="text-[10px] text-slate-600">${slotIdx+1}</span>`}
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    <div class="bg-slate-900/80 p-2 border border-slate-700 rounded"
+                         ondragover="allowDrop(event)" ondrop="dropToVault(event)">
+                        <p class="text-[11px] text-slate-400 mb-2 text-center">조각을 드래그하여 옮기거나 클릭하세요.</p>
+                        <div class="grid grid-cols-3 gap-1.5 min-h-[100px]" id="puzzle-vault">
+                            ${availablePuzzlePieces.map(pieceIdx => `
+                                <div class="aspect-[3/4] border border-slate-600 rounded overflow-hidden">
+                                    ${getPieceHTML(pieceIdx, null)}
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function getPieceHTML(pieceIdx, currentSlot) {
+            const row = Math.floor(pieceIdx / 3);
+            const col = pieceIdx % 3;
+            const fromSlotStr = currentSlot !== null ? currentSlot : 'vault';
+
+            return `
+                <div draggable="true" 
+                     ondragstart="dragPiece(event, ${pieceIdx}, '${fromSlotStr}')"
+                     onclick="event.stopPropagation(); ${currentSlot !== null ? `returnPieceToVault(${currentSlot})` : `autoPlacePiece(${pieceIdx})`}"
+                     class="puzzle-piece w-full h-full"
+                     style="background-image: url('${PUZZLE_IMAGE}'); background-size: 300% 300%; background-position: ${col * 50}% ${row * 50}%;">
+                </div>
+            `;
+        }
+
+        function allowDrop(ev) { ev.preventDefault(); }
+
+        function dragPiece(ev, pieceIdx, fromSlot) {
+            ev.dataTransfer.setData("pieceIdx", pieceIdx);
+            ev.dataTransfer.setData("fromSlot", fromSlot);
+        }
+
+        function dropPiece(ev, targetSlotIdx) {
+            ev.preventDefault();
+            const pieceIdx = parseInt(ev.dataTransfer.getData("pieceIdx"));
+            const fromSlot = ev.dataTransfer.getData("fromSlot");
+
+            if (fromSlot !== 'vault') {
+                const sourceSlotIdx = parseInt(fromSlot);
+                puzzleGridState[sourceSlotIdx] = null;
+            } else {
+                availablePuzzlePieces = availablePuzzlePieces.filter(p => p !== pieceIdx);
+            }
+
+            if (puzzleGridState[targetSlotIdx] !== null) {
+                availablePuzzlePieces.push(puzzleGridState[targetSlotIdx]);
+            }
+
+            puzzleGridState[targetSlotIdx] = pieceIdx;
+            refreshPuzzle();
+        }
+
+        function dropToVault(ev) {
+            ev.preventDefault();
+            const pieceIdx = parseInt(ev.dataTransfer.getData("pieceIdx"));
+            const fromSlot = ev.dataTransfer.getData("fromSlot");
+
+            if (fromSlot !== 'vault') {
+                const sourceSlotIdx = parseInt(fromSlot);
+                puzzleGridState[sourceSlotIdx] = null;
+                availablePuzzlePieces.push(pieceIdx);
+                refreshPuzzle();
+            }
+        }
+
+        function autoPlacePiece(pieceIdx) {
+            const firstEmptySlot = puzzleGridState.findIndex(s => s === null);
+            if (firstEmptySlot !== -1) {
+                puzzleGridState[firstEmptySlot] = pieceIdx;
+                availablePuzzlePieces = availablePuzzlePieces.filter(p => p !== pieceIdx);
+                refreshPuzzle();
+            }
+        }
+
+        function returnPieceToVault(slotIdx) {
+            const pieceIdx = puzzleGridState[slotIdx];
+            if (pieceIdx === null) return;
+            puzzleGridState[slotIdx] = null;
+            availablePuzzlePieces.push(pieceIdx);
+            refreshPuzzle();
+        }
+
+        function refreshPuzzle() {
+            const container = document.getElementById('quiz-container');
+            container.innerHTML = `<p class="font-bold text-sm mb-3 text-slate-200">${LOCATIONS[3].question}</p>`;
+            renderDragPuzzle(container);
+        }
+
+        function checkAnswer() {
+            const loc = LOCATIONS[currentLocIndex];
+            let isCorrect = false;
+
+            if (loc.type === 'choice') {
+                const selected = document.querySelector('input[name="quiz-opt"]:checked');
+                if (selected && parseInt(selected.value) === loc.answer) isCorrect = true;
+            } else if (loc.type === 'short' || loc.type === 'final') {
+                const val = document.getElementById('short-answer').value.trim();
+                if (val.replace(/\s+/g, '') === loc.answer.replace(/\s+/g, '')) isCorrect = true;
+            } else if (loc.type === 'map') {
+                if (currentMapSequence.length === 6) isCorrect = true;
+            } else if (loc.type === 'puzzle') {
+                if (JSON.stringify(puzzleGridState) === JSON.stringify([0, 1, 2, 3, 4, 5, 6, 7, 8])) isCorrect = true;
+            }
+
+            if (isCorrect) {
+                if (currentLocIndex === 6) {
+                    triggerGameSuccess();
+                } else {
+                    alert("정답입니다! 다음 장소 안내 정보를 확인하세요.");
+                    document.getElementById('next-loc-img').src = loc.nextGuideImg;
+                    showStep('guide');
+                }
+            } else {
+                alert("정답이 아닙니다! 다시 한 번 확인해 보세요.");
+                increaseAlert(10);
+            }
+        }
+
+        function proceedToNextLocation() {
+            if (currentLocIndex < LOCATIONS.length - 1) {
+                loadLocation(currentLocIndex + 1);
+            }
+        }
+
+        function openQRScanner() {
+            const qrContainer = document.getElementById('qr-reader');
+            qrContainer.classList.remove('hidden');
+            
+            html5QrCode = new Html5Qrcode("qr-reader");
+            html5QrCode.start(
+                { facingMode: "environment" },
+                { fps: 10, qrbox: 250 },
+                (decodedText) => {
+                    const loc = LOCATIONS[currentLocIndex];
+                    if (decodedText === loc.qrCode || decodedText === loc.fallbackCode) {
+                        alert("QR 스캔 성공! 문제가 해제되었습니다.");
+                        stopQRScanner();
+                        showStep('quiz');
+                        renderQuiz(loc);
+                    } else {
+                        alert("올바른 장소의 QR 코드가 아닙니다.");
+                    }
+                },
+                () => {}
+            );
+        }
+
+        function stopQRScanner() {
+            if (html5QrCode) {
+                html5QrCode.stop().then(() => {
+                    document.getElementById('qr-reader').classList.add('hidden');
+                }).catch(() => {});
+            }
+        }
+
+        function submitManualCode() {
+            const code = document.getElementById('manual-code').value.trim();
+            const loc = LOCATIONS[currentLocIndex];
+            if (code === loc.fallbackCode) {
+                alert("비상 인증 성공!");
+                stopQRScanner();
+                showStep('quiz');
+                renderQuiz(loc);
+            } else {
+                alert("올바르지 않은 비상 코드입니다.");
+            }
+        }
+
+        function useCharacterSkill() {
+            if (isSkillUsed) {
+                alert("특수 스킬은 게임 당 1회만 사용 가능합니다!");
+                return;
+            }
+
+            const loc = LOCATIONS[currentLocIndex];
+            isSkillUsed = true;
+            document.getElementById('skill-btn').classList.add('opacity-50', 'cursor-not-allowed');
+
+            switch (selectedChar.id) {
+                case 'jang':
+                    if (loc.type === 'choice') {
+                        const labels = document.querySelectorAll('#choice-options label');
+                        let removed = 0;
+                        labels.forEach((lbl, i) => {
+                            if (i !== loc.answer && removed < 2) {
+                                lbl.style.display = 'none';
+                                removed++;
+                            }
+                        });
+                        alert("[장재성 스킬] 오답 보기 2개가 제거되었습니다!");
+                    } else {
+                        decreaseAlert(5);
+                        alert("[스킬 발동] 경계 수치가 5% 감소했습니다.");
+                    }
+                    break;
+                case 'guk':
+                    decreaseAlert(15);
+                    alert("[국채진 스킬] 경계 수치가 15% 감소했습니다!");
+                    break;
+                case 'park':
+                    if (loc.type === 'map') {
+                        clickMapPin(currentMapSequence.length + 1);
+                        alert("[박준채 스킬] 다음 경로 지점을 클릭했습니다!");
+                    } else if (loc.type === 'puzzle') {
+                        puzzleGridState = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+                        availablePuzzlePieces = [];
+                        refreshPuzzle();
+                        alert("[박준채 스킬] 퍼즐 조각이 완벽하게 맞춰졌습니다!");
+                    } else {
+                        alert("[박준채 스킬] 지형지물 단서를 확인했습니다.");
+                    }
+                    break;
+                case 'lee':
+                    if (loc.type === 'short' || loc.type === 'final') {
+                        const hintEl = document.getElementById('short-hint');
+                        hintEl.innerText = `[이광춘 힌트] 정답: ${loc.answer}`;
+                        hintEl.classList.remove('hidden');
+                        alert("[이광춘 스킬] 정답 힌트가 공개되었습니다!");
+                    } else {
+                        alert("[이광춘 스킬] 암호 단서를 확보했습니다.");
+                    }
+                    break;
+                case 'kim':
+                    timerSeconds += 120;
+                    alert("[김귀임 스킬] 제한시간이 2분 연장되었습니다!");
+                    break;
+            }
+        }
+
+        function triggerGameOver(reason) {
+            clearInterval(timerInterval);
+            clearInterval(alertInterval);
+            clearInterval(locTimerInterval);
+
+            document.getElementById('game-screen').classList.add('hidden');
+            document.getElementById('status-bar').classList.add('hidden');
+            
+            const endingEl = document.getElementById('ending-screen');
+            endingEl.classList.remove('hidden');
+
+            document.getElementById('ending-icon').innerText = "🚨";
+            document.getElementById('ending-title').innerText = "작전 실패";
+            document.getElementById('ending-title').className = "text-2xl font-bold text-red-500";
+            document.getElementById('ending-desc').innerText = reason;
+        }
+
+        function triggerGameSuccess() {
+            clearInterval(timerInterval);
+            clearInterval(alertInterval);
+            clearInterval(locTimerInterval);
+
+            document.getElementById('game-screen').classList.add('hidden');
+            document.getElementById('status-bar').classList.add('hidden');
+
+            const endingEl = document.getElementById('ending-screen');
+            endingEl.classList.remove('hidden');
+
+            document.getElementById('ending-icon').innerText = "🇰🇷";
+            document.getElementById('ending-title').innerText = "대한 독립 만세!";
+            document.getElementById('ending-title').className = "text-2xl font-bold text-amber-400";
+            document.getElementById('ending-desc').innerHTML = `
+                <strong>1929년 11월, 당신들의 용기가 전국의 학생들을 깨웠습니다!</strong><br><br>
+                평촌고등학교 교정에 남겨진 역사의 숨결을 따라 모든 미션을 완수했습니다.<br>
+                독립을 향한 학생들의 뜨거운 열망을 기억해 주세요.
+            `;
+        }
+    </script>
+</body>
+</html>
