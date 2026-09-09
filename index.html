@@ -131,6 +131,12 @@
                 <p id="auth-title" class="text-sm font-bold text-amber-400">📍 현장에 도착하셨나요?</p>
                 <p id="auth-desc" class="text-xs text-slate-300">설치된 QR 코드를 스캔하거나 수동 입력을 거쳐야 단서가 해제됩니다.</p>
                 
+                <div id="qr-reader-box" class="hidden space-y-1">
+                    <div id="qr-reader" class="w-full bg-black rounded-lg overflow-hidden border border-slate-600"></div>
+                    <p class="text-[11px] text-slate-400 text-center">QR 코드를 네모 칸 안에 맞춰주세요</p>
+                    <button onclick="stopQRScanner()" class="w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-bold rounded-lg transition">✕ 스캔 취소</button>
+                </div>
+
                 <button id="qr-scan-btn" onclick="openQRScanner()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg transition shadow flex items-center justify-center gap-2">
                     📷 QR 코드 스캔하기
                 </button>
@@ -207,18 +213,6 @@
         </section>
 
     </main>
-
-    <!-- QR 스캔 팝업: 화면 중앙에 떠서 카메라 화면에 집중할 수 있게 함 -->
-    <div id="qr-modal" class="hidden fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onclick="if(event.target === this) stopQRScanner()">
-        <div class="w-full max-w-sm bg-slate-900 rounded-xl border border-slate-700 shadow-2xl overflow-hidden">
-            <div class="flex justify-between items-center px-4 py-3 border-b border-slate-700">
-                <p class="text-sm font-bold text-amber-400">📷 QR 코드 스캔</p>
-                <button onclick="stopQRScanner()" class="text-slate-400 hover:text-white text-2xl leading-none w-8 h-8 flex items-center justify-center rounded transition">✕</button>
-            </div>
-            <div id="qr-reader" class="w-full bg-black"></div>
-            <p class="text-[11px] text-slate-400 text-center py-2.5 px-3">QR 코드를 네모 칸 안에 맞춰주세요</p>
-        </div>
-    </div>
 
     <script>
         const MAP_IMAGE = 'map.png'; 
@@ -471,6 +465,9 @@
             document.getElementById('dialogue-text').innerText = loc.dialogue[selectedChar.id] || loc.dialogue['jang'];
 
             startLocStayTimer();
+            stopQRScanner(); // 지점 이동 시 이전 지점에서 켜져 있던 카메라를 확실히 정리
+            document.getElementById('qr-reader-box').classList.add('hidden');
+            document.getElementById('qr-scan-btn').classList.remove('hidden');
 
             if (loc.authType === 'none') {
                 showStep('quiz');
@@ -909,9 +906,10 @@
         }
 
         function openQRScanner() {
-            const qrModal = document.getElementById('qr-modal');
-            qrModal.classList.remove('hidden');
-            document.body.classList.add('overflow-hidden');
+            const qrReaderBox = document.getElementById('qr-reader-box');
+            const scanBtn = document.getElementById('qr-scan-btn');
+            qrReaderBox.classList.remove('hidden');
+            scanBtn.classList.add('hidden');
 
             html5QrCode = new Html5Qrcode("qr-reader");
             html5QrCode.start(
@@ -930,8 +928,8 @@
                 () => {}
             ).catch(() => {
                 alert("카메라를 시작할 수 없습니다. 비상 코드로 인증해주세요.");
-                qrModal.classList.add('hidden');
-                document.body.classList.remove('overflow-hidden');
+                qrReaderBox.classList.add('hidden');
+                scanBtn.classList.remove('hidden');
                 html5QrCode = null;
             });
         }
@@ -940,20 +938,20 @@
         // 뒤이어 실행돼야 할 화면 전환(proceedAfterAuth)까지 막혀버리므로,
         // 어떤 경우에도 예외가 밖으로 새지 않도록 방어한다.
         function stopQRScanner() {
-            const closeModal = () => {
-                document.getElementById('qr-modal').classList.add('hidden');
-                document.body.classList.remove('overflow-hidden');
+            const closeReader = () => {
+                document.getElementById('qr-reader-box').classList.add('hidden');
+                document.getElementById('qr-scan-btn').classList.remove('hidden');
             };
             if (!html5QrCode) {
-                closeModal();
+                closeReader();
                 return;
             }
             const scanner = html5QrCode;
             html5QrCode = null;
             try {
-                scanner.stop().then(closeModal).catch(closeModal);
+                scanner.stop().then(closeReader).catch(closeReader);
             } catch (e) {
-                closeModal();
+                closeReader();
             }
         }
 
